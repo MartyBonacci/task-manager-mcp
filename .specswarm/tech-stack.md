@@ -1,6 +1,6 @@
 # Technology Stack: Task Manager MCP Server
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Created**: 2025-12-25
 **Auto-Generated**: No (specification-based)
 **Status**: Active
@@ -86,11 +86,21 @@ This document defines the approved technology stack for the Task Manager MCP Ser
 
 #### google-auth
 - **Purpose**: OAuth 2.1 implementation
-- **Version**: 2.23.4+
+- **Version**: 2.35.0+
 - **Notes**:
   - Google OAuth 2.1 for user authentication
   - Dynamic Client Registration for mobile clients
   - Token validation on every MCP tool call
+  - Native JWT validation via google.auth.jwt module
+
+#### google-auth-oauthlib
+- **Purpose**: OAuth 2.1 flow helpers for Google authentication
+- **Version**: 1.2.0+
+- **Notes**:
+  - Simplifies OAuth authorization code flow
+  - Handles PKCE (Proof Key for Code Exchange) for mobile clients
+  - Provides credential refreshing utilities
+  - Integrates seamlessly with google-auth library
 
 #### python-jose
 - **Purpose**: JWT token handling
@@ -350,6 +360,12 @@ Must ignore:
 - Update this file when adding new approved technologies
 
 ## Changelog
+
+### v1.1.0 (2025-12-26)
+- Updated google-auth to v2.35.0+ for enhanced OAuth 2.1 support
+- Added google-auth-oauthlib v1.2.0+ for OAuth flow helpers
+- Added native JWT validation note (google.auth.jwt module)
+- Feature 003: OAuth 2.1 Authentication implementation
 
 ### v1.0.0 (2025-12-25)
 - Initial technology stack defined

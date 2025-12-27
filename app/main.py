@@ -13,11 +13,28 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.auth import get_current_user_id
+from app.api.clients import router as clients_router
+from app.api.error_handlers import (
+    dynamic_client_exception_handler,
+    generic_exception_handler,
+    mcp_exception_handler,
+    oauth_exception_handler,
+    task_manager_exception_handler,
+    validation_exception_handler,
+)
+from app.api.middleware import require_authentication
+from app.api.oauth import router as oauth_router
 from app.config.settings import settings
-from app.db.session import get_db, init_db
+from app.db.database import get_db, init_db
+from app.exceptions import (
+    DynamicClientException,
+    MCPException,
+    OAuthException,
+    TaskManagerException,
+)
 from app.mcp.handlers import TOOL_HANDLERS
 from app.mcp.tools import TOOLS
 
@@ -59,6 +76,19 @@ app = FastAPI(
     description="MCP Server for conversational task management",
     lifespan=lifespan,
 )
+
+# Register exception handlers
+# Order matters: most specific first, generic last
+app.add_exception_handler(OAuthException, oauth_exception_handler)
+app.add_exception_handler(DynamicClientException, dynamic_client_exception_handler)
+app.add_exception_handler(MCPException, mcp_exception_handler)
+app.add_exception_handler(TaskManagerException, task_manager_exception_handler)
+app.add_exception_handler(ValidationError, validation_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
+
+# Register routers
+app.include_router(oauth_router)
+app.include_router(clients_router)
 
 
 # Root endpoint (MCP protocol discovery)
@@ -151,7 +181,7 @@ async def mcp_tools_list() -> dict[str, Any]:
 async def mcp_tools_call(
     request: dict[str, Any],
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_authentication),
 ) -> dict[str, Any]:
     """
     MCP tools/call endpoint.

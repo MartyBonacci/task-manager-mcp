@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "dev-secret-key-change-in-production"
 
+    # OAuth 2.1 Configuration
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    OAUTH_REDIRECT_URI: str
+    ENCRYPTION_KEY: str
+    DEVELOPMENT_MODE: bool = False
+
     # Logging
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
