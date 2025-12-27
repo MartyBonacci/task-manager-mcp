@@ -1,0 +1,389 @@
+openapi: 3.0.3
+info:
+  title: Task Manager MCP - OAuth 2.1 API
+  description: OAuth 2.1 authentication endpoints for Task Manager MCP Server
+  version: 2.0.0
+  contact:
+    name: Task Manager Team
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://task-manager-mcp.run.app
+    description: Production server (Google Cloud Run)
+
+tags:
+  - name: OAuth
+    description: OAuth 2.1 authentication flow endpoints
+  - name: Dynamic Registration
+    description: RFC 7591 Dynamic Client Registration
+
+paths:
+  /oauth/authorize:
+    get:
+      summary: Initiate OAuth 2.1 authorization flow
+      description: |
+        Generates authorization URL for Google OAuth consent screen.
+        Returns URL with PKCE parameters and CSRF state token.
+      operationId: authorizeOAuth
+      tags:
+        - OAuth
+      responses:
+        '200':
+          description: Authorization URL generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationResponse'
+              example:
+                authorization_url: "https://accounts.google.com/o/oauth2/auth?client_id=...&state=..."
+                state: "a1b2c3d4e5f6"
+        '500':
+          description: Server error generating authorization URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /oauth/callback:
+    get:
+      summary: Handle OAuth authorization callback
+      description: |
+        Receives authorization code from Google OAuth.
+        Validates state parameter (CSRF protection).
+        Exchanges code for tokens using PKCE.
+        Creates user session with encrypted tokens.
+      operationId: oauthCallback
+      tags:
+        - OAuth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: Authorization code from Google
+          schema:
+            type: string
+            example: "4/0AY0e-g7..."
+        - name: state
+          in: query
+          required: true
+          description: CSRF state parameter (must match original request)
+          schema:
+            type: string
+            example: "a1b2c3d4e5f6"
+      responses:
+        '200':
+          description: Authentication successful, session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallbackResponse'
+              example:
+                session_id: "8N_0XZrqX3lRhFk9vFGZpA"
+                user_email: "user@example.com"
+                user_id: "102938475620394857263"
+        '400':
+          description: Invalid state parameter or authorization code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_state:
+                  summary: Invalid CSRF state
+                  value:
+                    error: "invalid_state"
+                    message: "Invalid state parameter - possible CSRF attack"
+                invalid_code:
+                  summary: Invalid authorization code
+                  value:
+                    error: "invalid_code"
+                    message: "Authorization code is invalid or expired"
+        '500':
+          description: Token exchange failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /oauth/logout:
+    post:
+      summary: End user session
+      description: |
+        Deletes session and clears OAuth tokens.
+        User must re-authenticate to access MCP tools again.
+      operationId: logoutOAuth
+      tags:
+        - OAuth
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+        '401':
+          description: Invalid or missing session ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+
+  /oauth/refresh:
+    post:
+      summary: Manually refresh access token
+      description: |
+        Uses refresh token to obtain new access token.
+        Normally handled automatically by auth middleware,
+        but exposed for manual token refresh if needed.
+      operationId: refreshToken
+      tags:
+        - OAuth
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: New access token expiration
+                    example: "2025-12-26T13:45:00Z"
+        '401':
+          description: Invalid session or refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+
+  /oauth/register:
+    post:
+      summary: Register dynamic OAuth client (RFC 7591)
+      description: |
+        Registers mobile or desktop client for OAuth authentication.
+        Generates temporary client_id and client_secret.
+        Client secret returned ONLY ONCE - client must store securely.
+        Credentials expire in 30 days if unused.
+      operationId: registerClient
+      tags:
+        - Dynamic Registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRegistrationRequest'
+            example:
+              platform: "ios"
+              redirect_uris:
+                - "com.example.taskmanager://oauth/callback"
+              client_name: "Task Manager iOS"
+      responses:
+        '201':
+          description: Client registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationResponse'
+              example:
+                client_id: "550e8400-e29b-41d4-a716-446655440000"
+                client_secret: "ZmQ0NGViMzY3NTE0MTBlYmE0Zjg1ZDljOGIxZjQwNDY="
+                expires_at: "2026-01-25T12:00:00Z"
+                redirect_uris:
+                  - "com.example.taskmanager://oauth/callback"
+        '400':
+          description: Invalid registration request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_uri:
+                  summary: Invalid redirect URI
+                  value:
+                    error: "invalid_redirect_uri"
+                    message: "Redirect URI must use https:// or custom scheme://"
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  parameters:
+    SessionId:
+      name: MCP-Session-Id
+      in: header
+      required: true
+      description: Session ID from OAuth callback
+      schema:
+        type: string
+        example: "8N_0XZrqX3lRhFk9vFGZpA"
+
+  schemas:
+    AuthorizationResponse:
+      type: object
+      required:
+        - authorization_url
+        - state
+      properties:
+        authorization_url:
+          type: string
+          format: uri
+          description: Google OAuth consent screen URL
+          example: "https://accounts.google.com/o/oauth2/auth?client_id=..."
+        state:
+          type: string
+          description: CSRF state parameter (internal use)
+          example: "a1b2c3d4e5f6"
+
+    CallbackResponse:
+      type: object
+      required:
+        - session_id
+        - user_email
+        - user_id
+      properties:
+        session_id:
+          type: string
+          description: Session identifier for MCP-Session-Id header
+          example: "8N_0XZrqX3lRhFk9vFGZpA"
+        user_email:
+          type: string
+          format: email
+          description: Google account email
+          example: "user@example.com"
+        user_id:
+          type: string
+          description: Google user ID (sub claim)
+          example: "102938475620394857263"
+
+    ClientRegistrationRequest:
+      type: object
+      required:
+        - platform
+        - redirect_uris
+      properties:
+        platform:
+          type: string
+          enum:
+            - ios
+            - android
+            - macos
+            - windows
+            - linux
+            - cli
+          description: Client platform
+          example: "ios"
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+          minItems: 1
+          maxItems: 5
+          description: Allowed OAuth callback URIs
+          example:
+            - "com.example.taskmanager://oauth/callback"
+        client_name:
+          type: string
+          maxLength: 100
+          description: Human-readable client name (optional)
+          example: "Task Manager iOS"
+
+    ClientRegistrationResponse:
+      type: object
+      required:
+        - client_id
+        - client_secret
+        - expires_at
+        - redirect_uris
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          description: Generated client identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        client_secret:
+          type: string
+          description: Generated client secret (ONLY returned once!)
+          example: "ZmQ0NGViMzY3NTE0MTBlYmE0Zjg1ZDljOGIxZjQwNDY="
+        expires_at:
+          type: string
+          format: date-time
+          description: Credential expiration (30 days)
+          example: "2026-01-25T12:00:00Z"
+        redirect_uris:
+          type: array
+          items:
+            type: string
+          description: Registered redirect URIs
+          example:
+            - "com.example.taskmanager://oauth/callback"
+
+    AuthError:
+      type: object
+      required:
+        - error
+        - message
+        - authorization_url
+      properties:
+        error:
+          type: string
+          enum:
+            - authentication_required
+            - token_expired
+            - access_revoked
+            - invalid_session
+          description: Error code
+          example: "authentication_required"
+        message:
+          type: string
+          description: User-friendly error message
+          example: "Authentication required. Click the link to authorize."
+        authorization_url:
+          type: string
+          format: uri
+          description: URL to re-authorize
+          example: "/oauth/authorize"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: "invalid_request"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "The request was invalid"
+        details:
+          type: object
+          description: Additional error context (optional)
+          additionalProperties: true
+
+  securitySchemes:
+    SessionAuth:
+      type: apiKey
+      in: header
+      name: MCP-Session-Id
+      description: Session ID from OAuth callback
+
+security:
+  - SessionAuth: []

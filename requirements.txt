@@ -9,9 +9,15 @@ mcp>=1.0.0
 # Database
 sqlalchemy[asyncio]>=2.0.35
 aiosqlite>=0.20.0
+alembic>=1.13.0
+
+# OAuth 2.1 Authentication
+google-auth==2.35.0
+google-auth-oauthlib==1.2.0
+cryptography==44.0.0
 
 # Data Validation
-pydantic>=2.10.0
+pydantic[email]>=2.10.0
 pydantic-settings>=2.6.0
 
 # Testing

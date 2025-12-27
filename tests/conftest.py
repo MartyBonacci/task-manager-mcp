@@ -35,14 +35,25 @@ TestAsyncSessionLocal = async_sessionmaker(
 )
 
 
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def cleanup_engine():
+    """
+    Clean up test engine after all tests complete.
+
+    This fixture runs automatically at session scope and ensures
+    the async engine is properly disposed, allowing pytest to exit cleanly.
+    """
+    yield  # Run all tests first
+
+    # After all tests complete, dispose the engine
+    await test_engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """
-    Create an event loop for the test session.
-
-    This ensures all async tests run in the same event loop.
-    """
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    """Create event loop for test session with proper cleanup."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
@@ -58,13 +69,37 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     Yields:
         AsyncSession: Test database session
     """
+    # Import here to avoid circular imports
+    from unittest.mock import patch
+    import app.db.session as db_session_module
+    from app.db.session import get_db
+    from app.main import app
+
     # Create tables
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     # Create session
     async with TestAsyncSessionLocal() as session:
-        yield session
+        # Override get_db function for both FastAPI dependency injection and direct calls
+        async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+            try:
+                yield session
+            finally:
+                # Don't close - let the fixture handle cleanup
+                pass
+
+        # Override FastAPI dependency injection
+        app.dependency_overrides[get_db] = override_get_db
+
+        # Monkeypatch get_db in the middleware module where it's used
+        # (middleware calls get_db() directly, not via Depends)
+        import app.api.middleware as middleware_module
+        with patch.object(middleware_module, 'get_db', override_get_db):
+            yield session
+
+        # Clear dependency overrides
+        app.dependency_overrides.clear()
 
     # Drop tables after test
     async with test_engine.begin() as conn:
