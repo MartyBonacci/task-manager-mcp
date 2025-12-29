@@ -17,6 +17,10 @@ google-auth==2.35.0
 google-auth-oauthlib==1.2.0
 cryptography==44.0.0
 
+# Google Calendar API
+google-api-python-client>=2.150.0
+google-auth-httplib2>=0.2.0
+
 # Data Validation
 pydantic[email]>=2.10.0
 pydantic-settings>=2.6.0

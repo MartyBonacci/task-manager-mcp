@@ -59,6 +59,12 @@ class Task(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_date: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
 
+    # Calendar Integration (Phase 2)
+    calendar_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    calendar_event_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    scheduled_start: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    scheduled_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Status
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     completed_at: Mapped[str | None] = mapped_column(String(50), nullable=True)

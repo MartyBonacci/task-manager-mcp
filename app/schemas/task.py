@@ -128,6 +128,10 @@ class TaskResponse(TaskBase):
             "time_estimate": "2hr",
             "notes": "Focus on tool registration",
             "due_date": null,
+            "calendar_event_id": null,
+            "calendar_event_url": null,
+            "scheduled_start": null,
+            "scheduled_duration": null,
             "completed": false,
             "completed_at": null,
             "created_at": "2025-12-25T10:00:00Z",
@@ -137,6 +141,10 @@ class TaskResponse(TaskBase):
 
     id: int
     user_id: str
+    calendar_event_id: str | None = None
+    calendar_event_url: str | None = None
+    scheduled_start: str | None = None
+    scheduled_duration: int | None = None
     completed: bool
     completed_at: str | None
     created_at: str
@@ -175,3 +183,31 @@ class TaskStats(BaseModel):
     completion_rate: float = Field(description="Completion rate percentage")
     by_project: dict[str, int] = Field(description="Task count by project")
     by_priority: dict[str, int] = Field(description="Task count by priority level")
+
+
+class TaskSchedule(BaseModel):
+    """
+    Schema for scheduling a task to Google Calendar.
+
+    Creates a calendar event for the task with the specified
+    start time and duration.
+
+    Example:
+        {
+            "task_id": 1,
+            "start_time": "2025-12-30T14:00:00-08:00",
+            "duration_minutes": 60
+        }
+    """
+
+    task_id: int = Field(description="ID of task to schedule")
+    start_time: str = Field(description="Event start time in ISO 8601 format with timezone")
+    duration_minutes: int = Field(ge=5, le=480, description="Event duration in minutes (5-480)")
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration(cls, v: int) -> int:
+        """Ensure duration is reasonable (5 minutes to 8 hours)."""
+        if v < 5 or v > 480:
+            raise ValueError("Duration must be between 5 and 480 minutes")
+        return v
