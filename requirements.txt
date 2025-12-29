@@ -21,6 +21,11 @@ cryptography==44.0.0
 google-api-python-client>=2.150.0
 google-auth-httplib2>=0.2.0
 
+# Production Features
+slowapi>=0.1.9  # Rate limiting
+tenacity>=9.0.0  # Retry logic with exponential backoff
+google-cloud-logging>=3.11.0  # Google Cloud Logging integration
+
 # Data Validation
 pydantic[email]>=2.10.0
 pydantic-settings>=2.6.0

@@ -25,8 +25,12 @@ from app.api.error_handlers import (
     task_manager_exception_handler,
     validation_exception_handler,
 )
+from app.api.health import router as health_router
+from app.api.logging_middleware import RequestLoggingMiddleware
 from app.api.middleware import require_authentication
 from app.api.oauth import router as oauth_router
+from app.api.rate_limiting import configure_rate_limits
+from app.config.logging_config import setup_logging
 from app.config.settings import settings
 from app.db.database import get_db, init_db
 from app.exceptions import (
@@ -38,11 +42,8 @@ from app.exceptions import (
 from app.mcp.handlers import TOOL_HANDLERS
 from app.mcp.tools import TOOLS
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure structured logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -52,12 +53,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Application lifespan manager.
 
     Handles startup and shutdown events.
-    - Startup: Initialize database tables
+    - Startup: Initialize database tables, configure middleware
     - Shutdown: Cleanup resources
     """
     # Startup
     logger.info("Starting Task Manager MCP Server...")
-    logger.info(f"MCP Protocol Version: {settings.MCP_PROTOCOL_VERSION}")
+    logger.info(
+        f"MCP Protocol Version: {settings.MCP_PROTOCOL_VERSION}",
+        extra={"version": settings.VERSION, "environment": settings.ENVIRONMENT},
+    )
 
     # Initialize database
     await init_db()
@@ -86,9 +90,24 @@ app.add_exception_handler(TaskManagerException, task_manager_exception_handler)
 app.add_exception_handler(ValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
+# Add middleware
+# Order matters: middleware is applied in reverse order (last added = first executed)
+app.add_middleware(RequestLoggingMiddleware, exclude_paths=["/health", "/health/liveness", "/health/readiness"])
+configure_rate_limits(app)
+
+logger.info(
+    "Middleware configured",
+    extra={
+        "request_logging": True,
+        "rate_limiting": settings.ENVIRONMENT == "production",
+        "environment": settings.ENVIRONMENT,
+    },
+)
+
 # Register routers
 app.include_router(oauth_router)
 app.include_router(clients_router)
+app.include_router(health_router)
 
 
 # Root endpoint (MCP protocol discovery)
@@ -259,18 +278,6 @@ async def mcp_tools_call(
     except Exception as e:
         logger.error(f"Tool execution failed: {tool_name} - {e!s}")
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {e!s}")
-
-
-# Health check endpoint
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """
-    Health check endpoint.
-
-    Returns:
-        Health status
-    """
-    return {"status": "healthy"}
 
 
 # Debug endpoint (only in debug mode)
