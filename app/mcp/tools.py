@@ -215,6 +215,31 @@ TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "task_schedule",
+        "description": "Schedule a task to Google Calendar. Creates a calendar event linked to the task with specified start time and duration. Requires Google Calendar OAuth scope.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "ID of the task to schedule (required)",
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "Event start time in ISO 8601 format with timezone (e.g., '2025-12-30T14:00:00-08:00')",
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Event duration in minutes (5-480, default: 60)",
+                    "minimum": 5,
+                    "maximum": 480,
+                    "default": 60,
+                },
+            },
+            "required": ["task_id", "start_time", "duration_minutes"],
+        },
+    },
 ]
 
 

@@ -20,11 +20,12 @@ from app.schemas.mcp import (
     TaskDeleteInput,
     TaskGetInput,
     TaskListInput,
+    TaskScheduleInput,
     TaskSearchInput,
     TaskStatsInput,
     TaskUpdateInput,
 )
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskCreate, TaskSchedule, TaskUpdate
 from app.services.task_service import TaskService
 
 
@@ -431,6 +432,71 @@ class MCPToolHandlers:
             error_data = {"error": str(e), "code": "TASK_STATS_FAILED"}
             return MCPToolResponse(content=[MCPContent(type="text", text=json.dumps(error_data))])
 
+    @staticmethod
+    async def task_schedule(
+        db: AsyncSession, user_id: str, params: dict[str, Any]
+    ) -> MCPToolResponse:
+        """
+        Handle task_schedule tool call.
+
+        Args:
+            db: Database session
+            user_id: Authenticated user ID
+            params: Tool input parameters (includes access_token and refresh_token)
+
+        Returns:
+            MCPToolResponse: Updated task with calendar event information
+
+        Example Input:
+            {
+                "task_id": 1,
+                "start_time": "2025-12-30T14:00:00-08:00",
+                "duration_minutes": 60,
+                "_access_token": "ya29...",
+                "_refresh_token": "1//04..."
+            }
+
+        Example Output:
+            {
+                "content": [{
+                    "type": "text",
+                    "text": "{\"id\": 1, \"calendar_event_id\": \"abc123\", ...}"
+                }]
+            }
+        """
+        try:
+            # Extract OAuth tokens (injected by middleware)
+            access_token = params.pop("_access_token", None)
+            refresh_token = params.pop("_refresh_token", None)
+
+            if not access_token or not refresh_token:
+                error_data = {"error": "OAuth tokens not found. Please re-authenticate.", "code": "AUTH_REQUIRED"}
+                return MCPToolResponse(content=[MCPContent(type="text", text=json.dumps(error_data))])
+
+            # Validate input
+            input_data = TaskScheduleInput(**params)
+
+            # Create schedule data
+            schedule_data = TaskSchedule(**input_data.model_dump())
+
+            # Schedule task
+            task = await TaskService.schedule_task(
+                db, user_id, access_token, refresh_token, schedule_data
+            )
+
+            # Return MCP response
+            return MCPToolResponse(
+                content=[MCPContent(type="text", text=task.model_dump_json())]
+            )
+        except ValueError as e:
+            # Return error response for task not found or calendar API failures
+            error_data = {"error": str(e), "code": "TASK_SCHEDULE_FAILED"}
+            return MCPToolResponse(content=[MCPContent(type="text", text=json.dumps(error_data))])
+        except Exception as e:
+            # Return error response
+            error_data = {"error": str(e), "code": "TASK_SCHEDULE_FAILED"}
+            return MCPToolResponse(content=[MCPContent(type="text", text=json.dumps(error_data))])
+
 
 # Tool name to handler mapping
 TOOL_HANDLERS = {
@@ -442,4 +508,5 @@ TOOL_HANDLERS = {
     "task_delete": MCPToolHandlers.task_delete,
     "task_search": MCPToolHandlers.task_search,
     "task_stats": MCPToolHandlers.task_stats,
+    "task_schedule": MCPToolHandlers.task_schedule,
 }

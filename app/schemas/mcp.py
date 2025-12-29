@@ -173,6 +173,28 @@ class TaskStatsInput(MCPToolInput):
     project: str | None = Field(None, description="Filter stats by project")
 
 
+class TaskScheduleInput(MCPToolInput):
+    """
+    Input schema for task_schedule tool.
+
+    MCP Tool: task_schedule
+    Description: Schedule a task to Google Calendar
+
+    Example:
+        {
+            "task_id": 1,
+            "start_time": "2025-12-30T14:00:00-08:00",
+            "duration_minutes": 60
+        }
+    """
+
+    task_id: int = Field(..., description="ID of task to schedule")
+    start_time: str = Field(..., description="Event start time (ISO 8601 with timezone)")
+    duration_minutes: int = Field(
+        default=60, ge=5, le=480, description="Duration in minutes (5-480)"
+    )
+
+
 class MCPContent(BaseModel):
     """
     MCP content block schema.

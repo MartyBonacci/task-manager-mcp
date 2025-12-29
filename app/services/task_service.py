@@ -13,7 +13,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task
-from app.schemas.task import TaskCreate, TaskResponse, TaskStats, TaskUpdate
+from app.schemas.task import TaskCreate, TaskResponse, TaskSchedule, TaskStats, TaskUpdate
+from app.services.calendar_service import CalendarService
 
 
 class TaskService:
@@ -376,3 +377,83 @@ class TaskService:
             by_project=by_project,
             by_priority=by_priority,
         )
+
+    @staticmethod
+    async def schedule_task(
+        db: AsyncSession,
+        user_id: str,
+        access_token: str,
+        refresh_token: str,
+        schedule_data: TaskSchedule,
+    ) -> TaskResponse:
+        """
+        Schedule a task to Google Calendar.
+
+        Creates a calendar event and links it to the task.
+
+        Args:
+            db: Database session
+            user_id: ID of the user scheduling the task
+            access_token: Google OAuth access token
+            refresh_token: Google OAuth refresh token
+            schedule_data: Scheduling data (task_id, start_time, duration)
+
+        Returns:
+            TaskResponse: Updated task with calendar event information
+
+        Raises:
+            ValueError: If task not found or calendar API fails
+
+        Example:
+            task = await TaskService.schedule_task(
+                db,
+                "dev-user",
+                access_token,
+                refresh_token,
+                TaskSchedule(
+                    task_id=1,
+                    start_time="2025-12-30T14:00:00-08:00",
+                    duration_minutes=60
+                )
+            )
+        """
+        # Get task with user verification
+        query = select(Task).filter(
+            Task.id == schedule_data.task_id, Task.user_id == user_id
+        )
+        result = await db.execute(query)
+        task = result.scalar_one_or_none()
+
+        if not task:
+            raise ValueError(f"Task {schedule_data.task_id} not found")
+
+        # Initialize calendar service
+        calendar_service = CalendarService(access_token, refresh_token)
+
+        # Parse start time
+        start_time = datetime.fromisoformat(schedule_data.start_time)
+
+        # Create calendar event
+        try:
+            event = await calendar_service.create_event(
+                title=task.title,
+                start_time=start_time,
+                duration_minutes=schedule_data.duration_minutes,
+                description=task.notes or f"Task from Task Manager MCP\nPriority: {task.priority}",
+            )
+
+            # Update task with calendar information
+            task.calendar_event_id = event["id"]
+            task.calendar_event_url = event.get("htmlLink")
+            task.scheduled_start = schedule_data.start_time
+            task.scheduled_duration = schedule_data.duration_minutes
+            task.updated_at = datetime.now(UTC).isoformat()
+
+            await db.commit()
+            await db.refresh(task)
+
+            return TaskResponse.model_validate(task)
+
+        except Exception as e:
+            await db.rollback()
+            raise ValueError(f"Failed to create calendar event: {str(e)}")
