@@ -12,7 +12,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,6 +179,7 @@ async def mcp_tools_list() -> dict[str, Any]:
 
 @app.post("/mcp/tools/call")
 async def mcp_tools_call(
+    request_obj: Request,
     request: dict[str, Any],
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(require_authentication),
@@ -189,6 +190,7 @@ async def mcp_tools_call(
     Executes an MCP tool with provided parameters.
 
     Args:
+        request_obj: FastAPI Request object (for accessing auth headers)
         request: Tool call request with name and params
         db: Database session (injected)
         user_id: Authenticated user ID (injected)
@@ -218,6 +220,11 @@ async def mcp_tools_call(
     Raises:
         HTTPException: If tool not found or execution fails
     """
+    from app.services.session_service import (
+        get_decrypted_access_token,
+        get_decrypted_refresh_token,
+    )
+
     tool_name = request.get("name")
     params = request.get("params", {})
 
@@ -228,6 +235,21 @@ async def mcp_tools_call(
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+
+    # Inject OAuth tokens for task_schedule tool
+    if tool_name == "task_schedule":
+        # Get session_id from Authorization header
+        auth_header = request_obj.headers.get("Authorization", "")
+        session_id = auth_header.replace("Bearer ", "").strip() if auth_header else None
+
+        if session_id:
+            # Get decrypted OAuth tokens from session
+            access_token = await get_decrypted_access_token(db, session_id)
+            refresh_token = await get_decrypted_refresh_token(db, session_id)
+
+            # Inject tokens into params
+            params["_access_token"] = access_token
+            params["_refresh_token"] = refresh_token
 
     # Execute tool handler
     try:
