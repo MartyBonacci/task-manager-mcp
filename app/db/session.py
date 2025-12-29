@@ -11,11 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config.settings import settings
 
-# Create async engine
+# Create async engine with production-ready connection pool settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,  # Log SQL queries in debug mode
     future=True,
+    pool_pre_ping=True,  # Check connection health before using
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_size=5,  # Maximum number of connections in the pool
+    max_overflow=10,  # Maximum overflow connections
+    connect_args={
+        "server_settings": {"jit": "off"},  # Disable JIT for Neon compatibility
+        "command_timeout": 60,  # 60 second command timeout
+        "timeout": 10,  # 10 second connection timeout
+    },
 )
 
 # Create async session factory
