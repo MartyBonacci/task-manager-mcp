@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Task Manager MCP Server"
     VERSION: str = "0.1.0"
     DEBUG: bool = False
+    ENVIRONMENT: Literal["development", "production"] = "production"
 
     # Server Configuration
     HOST: str = "0.0.0.0"
