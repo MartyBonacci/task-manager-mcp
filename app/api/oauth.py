@@ -10,9 +10,13 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from google.oauth2 import id_token
+from google.oauth2.credentials import Credentials
+from google.auth.transport import requests as google_requests
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.oauth import create_oauth_flow
+from app.config.settings import settings
 from app.db.database import get_db
 from app.schemas.oauth import (
     OAuthCallbackRequest,
@@ -146,9 +150,19 @@ async def oauth_callback(
     credentials = flow.credentials
 
     # Get user info from ID token
-    id_info = credentials.id_token
-    if not id_info:
+    id_token_jwt = credentials.id_token
+    if not id_token_jwt:
         raise HTTPException(status_code=400, detail="No ID token in response")
+
+    # Verify and decode the ID token
+    try:
+        id_info = id_token.verify_oauth2_token(
+            id_token_jwt, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid ID token: {str(e)}"
+        )
 
     user_id = id_info.get("sub")
     email = id_info.get("email")
@@ -174,7 +188,12 @@ async def oauth_callback(
 
     # Calculate expires_in (seconds until expiration)
     now = datetime.now(timezone.utc)
-    expires_in = int((credentials.expiry - now).total_seconds())
+    # Ensure credentials.expiry is timezone-aware
+    expiry = credentials.expiry
+    if expiry.tzinfo is None:
+        # If naive, assume UTC
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    expires_in = int((expiry - now).total_seconds())
 
     # Return session info and tokens
     return OAuthTokenResponse(
@@ -214,19 +233,21 @@ async def oauth_refresh(
     if stored_refresh_token != request.refresh_token:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    # Create OAuth flow
+    # Create OAuth flow to get client config
     flow = create_oauth_flow()
 
     # Use refresh token to get new access token
     try:
-        flow.credentials = flow.credentials.__class__(
+        # Create credentials object with refresh token
+        credentials = Credentials(
             token=None,
             refresh_token=stored_refresh_token,
             token_uri=flow.client_config["token_uri"],
             client_id=flow.client_config["client_id"],
             client_secret=flow.client_config["client_secret"],
         )
-        flow.credentials.refresh(Request())
+        # Refresh to get new access token
+        credentials.refresh(google_requests.Request())
     except Exception as e:
         raise HTTPException(
             status_code=400, detail=f"Failed to refresh token: {str(e)}"
@@ -236,8 +257,8 @@ async def oauth_refresh(
     updated_session = await refresh_session(
         db,
         session_id=request.session_id,
-        new_access_token=flow.credentials.token,
-        new_expires_at=flow.credentials.expiry,
+        new_access_token=credentials.token,
+        new_expires_at=credentials.expiry,
     )
 
     if not updated_session:
@@ -245,12 +266,17 @@ async def oauth_refresh(
 
     # Calculate expires_in
     now = datetime.now(timezone.utc)
-    expires_in = int((flow.credentials.expiry - now).total_seconds())
+    # Ensure credentials.expiry is timezone-aware
+    expiry = credentials.expiry
+    if expiry.tzinfo is None:
+        # If naive, assume UTC
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    expires_in = int((expiry - now).total_seconds())
 
     # Return new tokens
     return OAuthTokenResponse(
         session_id=updated_session.session_id,
-        access_token=flow.credentials.token,
+        access_token=credentials.token,
         refresh_token=stored_refresh_token,  # Refresh token doesn't change
         expires_in=expires_in,
         token_type="Bearer",
